@@ -16,9 +16,9 @@ maintainers = [
     {name = "Chenou Zhang", email = "czhan178@asu.edu"},
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
-    "MDAnalysis>=2.0.0",
+    "MDAnalysis>=2.6.1",
 ]
 keywords = [
     "molecular simulations",
@@ -32,6 +32,8 @@ test = [
     "pytest>=6.0",
     "pytest-xdist>=2.5",
     "pytest-cov>=3.0",
+    "shapely>=2.0.2",
+    "scipy>=1.12.0"
 ]
 doc = [
     "sphinx",

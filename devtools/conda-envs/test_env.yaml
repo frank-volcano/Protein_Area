@@ -16,6 +16,10 @@ dependencies:
   - pytest-xdist
   - codecov
 
+  # other dependency
+  - scipy
+  - shapely
+
   # Pip-only installs
   #- pip:
   #  - codecov
