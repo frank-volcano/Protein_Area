@@ -176,4 +176,46 @@ class ProteinArea(AnalysisBase):
 
     def _conclude(self):
         self.results.area_per_frame = np.array(self.results.area_per_frame)
+        self.results.slice_edges = self._slices
+        self.results.slice_centers = 0.5 * (self._slices[:-1]  + self._slices[1:])
+        
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Compute protein cross-sectional area per Z-slice from CG trajectory"
+    )
+    parser.add_argument("tpr", help="GROMACS topology file (.tpr)")
+    parser.add_argument("xtc", help="GROMACS trajectory file (.xtc)")
+    parser.add_argument("--zmin",  type=float, default=0,    help="lower z bound")
+    parser.add_argument("--zmax",  type=float, default=150,  help="upper z bound")
+    parser.add_argument("--layer", type=float, default=0.5,  help="slice thickness")
+    parser.add_argument("--nopbc", action="store_true",      help="disable PBC images")
+    parser.add_argument("--start", type=int,   default=0,   help="start frame to process")
+    parser.add_argument("--stop",  type=int,   default=None, help="max frames to process")
+    args = parser.parse_args()
+
+    u  = mda.Universe(args.tpr, args.xtc)
+    ag = u.select_atoms("all")
+    pa = ProteinArea(
+        ag,
+        zmin=args.zmin,
+        zmax=args.zmax,
+        layer=args.layer,
+        showpoints=False,
+        nopbc=args.nopbc,
+        start=args.start,
+        stop=args.stop,
+        verbose=True
+    )
+    pa.run()
+
+    outname = "area_per_frame"
+    np.save(outname + '.npy', pa.results.area_per_frame)
+    np.save('slice_edges.npy', pa.results.slice_edges)
+    np.save('slice_centers.npy', pa.results.slice_centers)
+    print(f"Saved cross-sectional area time series to {outname}")
+    print(f"saved Slice edges to slice_edges.npy")
+    print(f"Saved Slice centers to slice_centers.npy")
+
         
