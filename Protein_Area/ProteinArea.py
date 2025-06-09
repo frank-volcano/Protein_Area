@@ -14,7 +14,9 @@ import matplotlib.pyplot as plt
 
 
 from MDAnalysis.analysis.base import AnalysisBase
+from MDAnalysis.analysis.results import ResultsGroup
 from scipy.spatial import Voronoi
+from scipy.spatial import cKDTree
 from scipy.spatial import voronoi_plot_2d
 from matplotlib.patches import Polygon
 from numpy.linalg import norm
@@ -74,10 +76,6 @@ def voronoi_pbc(ag, nopbc=False):
     pbc_arrays = np.array(
         [
             [x, 0],
-            [x, y],
-            [x, -y],
-            [-x, 0],
-            [-x, y],
             [-x, -y],
             [0, y],
             [0, -y]
@@ -140,45 +138,61 @@ class ProteinArea(AnalysisBase):
     nopbc: flag to turn off pbc images, set to False.
     showpoints: output the voronoi points at certain layer(default=-1)
     '''
-    def __init__(self, atomgroup, zmin=0, zmax=150, layer=0.5, showpoints=False, nopbc=False, **kwargs):
-        super(ProteinArea, self).__init__(atomgroup.universe.trajectory,
-                                          **kwargs)
-        self._zmin = zmin
-        self._zmax = zmax
-        self._layer = layer
-        self._ag = atomgroup
-        self._nopbc = nopbc
+    @classmethod
+    def get_supported_backends(cls):
+        return ('serial', 'multiprocessing', 'dask')
+    # Declares which parallelization backends that are supported.
+
+    _analysis_algorithm_is_parallelizable = True
+    # This tells MD that this analysis can be parallelized
+
+    def __init__(self, atomgroup, zmin=0, zmax=150, layer=0.5,
+                 showpoints=False, nopbc=False, **kwargs):
+        # This calls parent constructor with the traj
+        # Allows use of MD frame-parallel infrastructure
+
+        super().__init__(atomgroup.universe.trajectory, **kwargs)
+        self._ag        = atomgroup
+        self._zmin      = zmin
+        self._zmax      = zmax
+        self._layer     = layer
         self._showpoints= showpoints
+        self._nopbc    = nopbc
+        # Stores input param for slicing in the Z-dim, optional Voronoi visualization
+        # and whether to apply PBC corrections
 
     def _prepare(self):
         self.results.area_per_frame = []
-        
-        # slicing a frame
         self._slices = np.arange(self._zmin, self._zmax, self._layer)
-
+        # Called once before frame analysis starts
+        # Initializes the result container
+        # Calculates the Z-slice positions from zmin/zmax using layer thickness
 
 
     def _single_frame(self):
         for slice_index, slice in enumerate(self._slices[:-1]):
-            slice = self._ag.select_atoms('prop z > ' + 
-                                          str(self._slices[slice_index]) + 
-                                          ' and prop z < ' + 
-                                          str(self._slices[slice_index+1]))
-                
+            slice = self._ag.select_atoms(
+                'prop z > ' + str(self._slices[slice_index]) +
+                ' and prop z < ' + str(self._slices[slice_index+1])
+            )  # Loops over each z-slice of the protein and selects atoms within each slice using z-coord
             if self._showpoints:
                 points_p, points_np, points_pbc = voronoi_pbc(slice)
                 voronoi_plot(points_p, points_np, points_pbc, name=str(slice_index))
-
-            
+                # Visualizes Voronoi Tess of each slice if --showpoints is enabled
             self.results.area_per_frame.append(
                 calc_area_per_slice(slice, self._nopbc)
-                )
+            )
+                # Calculates the Voronoi-based area of the slice and appends it to the result list
+                # self._nopbc determines whether PBC corrections are applied
+                
+    def _get_aggregator(self):
+        return ResultsGroup(lookup={'area_per_frame': ResultsGroup.flatten_sequence})
+                # Parallel analysis feature that tells MD how to combine per frame results
+                # across parallel workers. 
 
     def _conclude(self):
         self.results.area_per_frame = np.array(self.results.area_per_frame)
-        self.results.slice_edges = self._slices
-        self.results.slice_centers = 0.5 * (self._slices[:-1]  + self._slices[1:])
-        
+                # Converts the list of area values into a NumPy array for plt.
 if __name__ == "__main__":
     import argparse
 
@@ -191,31 +205,35 @@ if __name__ == "__main__":
     parser.add_argument("--zmax",  type=float, default=150,  help="upper z bound")
     parser.add_argument("--layer", type=float, default=0.5,  help="slice thickness")
     parser.add_argument("--nopbc", action="store_true",      help="disable PBC images")
-    parser.add_argument("--start", type=int,   default=0,   help="start frame to process")
     parser.add_argument("--stop",  type=int,   default=None, help="max frames to process")
+    parser.add_argument('--backend', choices=('serial','multiprocessing','dask'), default='serial', help='parallel backend')
+    parser.add_argument('--workers', type=int, help='number of workers')
+    parser.add_argument('--verbose', action='store_true',      help='verbose')
+    parser.add_argument(
+    '--showpoints',
+    action='store_true',
+    help='plot Voronoi for each slice'
+)
+
     args = parser.parse_args()
 
     u  = mda.Universe(args.tpr, args.xtc)
     ag = u.select_atoms("all")
     pa = ProteinArea(
-        ag,
-        zmin=args.zmin,
-        zmax=args.zmax,
-        layer=args.layer,
-        showpoints=False,
-        nopbc=args.nopbc,
-        start=args.start,
-        stop=args.stop,
-        verbose=True
-    )
-    pa.run()
+    ag,
+    zmin=args.zmin,
+    zmax=args.zmax,
+    layer=args.layer,
+    nopbc=args.nopbc
+)
+pa.run(
+    stop=args.stop,     
+    backend=args.backend,
+    n_workers=args.workers,
+    verbose=args.verbose
+)
 
-    outname = "area_per_frame"
-    np.save(outname + '.npy', pa.results.area_per_frame)
-    np.save('slice_edges.npy', pa.results.slice_edges)
-    np.save('slice_centers.npy', pa.results.slice_centers)
-    print(f"Saved cross-sectional area time series to {outname}")
-    print(f"saved Slice edges to slice_edges.npy")
-    print(f"Saved Slice centers to slice_centers.npy")
+outname = 'area_per_frame.npy'
+np.save(outname, pa.results.area_per_frame)
+print(f"Saved cross-sectional area time series to {outname}")
 
-        
