@@ -78,10 +78,14 @@ def voronoi_pbc(ag, nopbc=False):
     # create 8 pbc images
     pbc_arrays = np.array(
         [
-            [x, 0],
-            [-x, -y],
-            [0, y],
-            [0, -y]
+        [x, 0],
+        [x, y],
+        [x, -y],
+        [-x, 0],
+        [-x, y],
+        [-x, -y],
+        [0, y],
+        [0, -y]
         ]
     )
 
@@ -221,11 +225,7 @@ if __name__ == "__main__":
     parser.add_argument('--backend', choices=('serial','multiprocessing','dask'), default='serial', help='parallel backend')
     parser.add_argument('--workers', type=int, help='number of workers')
     parser.add_argument('--verbose', action='store_true',      help='verbose')
-    parser.add_argument(
-    '--showpoints',
-    action='store_true',
-    help='plot Voronoi for each slice'
-    )
+    parser.add_argument('--showpoints', action='store_true', help='plot Voronoi for each slice')
 
     args = parser.parse_args()
     
@@ -245,13 +245,7 @@ if __name__ == "__main__":
     logging.info("MDAnalysis Universe loaded successfully")
 
     ag = u.select_atoms("all")
-    pa = ProteinArea(
-    ag,
-    zmin=args.zmin,
-    zmax=args.zmax,
-    layer=args.layer,
-    nopbc=args.nopbc
-    )
+    pa = ProteinArea(ag, zmin=args.zmin, zmax=args.zmax, layer=args.layer, nopbc=args.nopbc)
 
     run_start = time.time()
     logging.info(f"pa.run() starting (backend={args.backend}, workers={args.workers})")
